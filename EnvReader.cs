@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Azure.Documents;
 using Microsoft.Azure.Documents.SystemFunctions;
+using System.Diagnostics;
 
 class EnvReader
 {
@@ -9,6 +10,17 @@ class EnvReader
     {
 
     }
+
+        internal static string GetSafeEnvVar(string name)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrEmpty(value))
+            {
+                throw new Exception("Could not initialize. Missing environment variable: " + name);
+            }
+
+            return value.Trim();
+        }
 
     internal static IEnumerable<string> GetWriteRegions()
     {
@@ -19,7 +31,7 @@ class EnvReader
     private static IEnumerable<string> ParseEnvironmentVariable(string envVar)
     {
         IEnumerable<string> response = null;
-        var locations = Environment.GetEnvironmentVariable(envVar);
+        var locations = GetSafeEnvVar(envVar);
 
         if (!string.IsNullOrEmpty(locations))
         {

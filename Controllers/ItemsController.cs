@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -19,49 +20,55 @@ namespace cosmosdata.Controllers
         public string location { get; set; }
 
         public string fromEndpoint { get; set; }
-
-        public string localEnv { get; set; }
-
     }
+
+class ItemComparer : EqualityComparer<Item>
+{
+    public override bool Equals(Item i1, Item i2)
+    {
+        var isEqual = false;
+
+        if( i1.id == i2.id )
+        {
+            isEqual = true;
+        }
+        return isEqual;
+    }
+
+
+    public override int GetHashCode(Item s)
+    {
+        return base.GetHashCode();
+    }
+}
     [Route("api/[controller]")]
     public class ItemsController : Controller
     {
-        const string databaseName = "ToDoList";
-        const string collectionName = "Items";
+        const string databaseName = "mydb";
+        const string collectionName = "items";
         public ItemsController()
         {
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ENDPOINT")))
-            {
-                EndpointUri = Environment.GetEnvironmentVariable("ENDPOINT");
-            }
-            else
-            {
-                throw new Exception("Could not initialize. Missing environment variable ENDPOINT ");
-            }
-
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KEY")))
-            {
-                PrimaryKey = Environment.GetEnvironmentVariable("KEY");
-            }
-            else
-            {
-                throw new Exception("Could not initialize. Missing environment variable KEY ");
-            }
-            this.writeClient = GetWriteClient();
-            this.readClient = GetReadClient();
+            PrimaryEndpointUri = EnvReader.GetSafeEnvVar("PRIMARY_ENDPOINT");
+            SecondaryEndpointUri = EnvReader.GetSafeEnvVar("SECONDARY_ENDPOINT");
+            PrimaryKey = EnvReader.GetSafeEnvVar("PRIMARY_KEY");
+            SecondaryKey = EnvReader.GetSafeEnvVar("SECONDARY_KEY");
         }
 
-        private DocumentClient GetWriteClient()
-        {
-            return GetDocumentClient( EnvReader.GetWriteRegions() );
+        private DocumentClient primaryClient { 
+            get 
+            {
+                return GetDocumentClient(PrimaryEndpointUri, PrimaryKey, EnvReader.GetWriteRegions());
+            }
         }
 
-        private DocumentClient GetReadClient()
-        {
-            return GetDocumentClient( EnvReader.GetReadRegions() );
+        private DocumentClient secondaryClient { 
+            get 
+            {
+                return GetDocumentClient(SecondaryEndpointUri, SecondaryKey, EnvReader.GetReadRegions());
+            }
         }
 
-        private DocumentClient GetDocumentClient( IEnumerable<string> locations  )
+        private DocumentClient GetDocumentClient( string endpoint, string key, IEnumerable<string> locations  )
         {
             ConnectionPolicy policy = new ConnectionPolicy { ConnectionMode = ConnectionMode.Direct, ConnectionProtocol = Protocol.Tcp };
             foreach (var l in locations )
@@ -70,61 +77,73 @@ namespace cosmosdata.Controllers
                 policy.PreferredLocations.Add(l);
             }
 
-            return new DocumentClient(new Uri(EndpointUri),
-                PrimaryKey,
+            return new DocumentClient(new Uri(endpoint),
+                key,
                 policy);
         }
-        //private const string EndpointUri = "https://172.27.229.165:8081/";
-        //private const string PrimaryKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
 
-        //private const string EndpointUri = "https://xtoph.documents.azure.com:443/";
-        //private const string PrimaryKey = "uV6WXRLcLGM3cdNZIGc6JA4haHq9Ba2VnrXiGv1O7SRe7wPjatOGhTSZyeUtHgYO320n7ETKDYqLq3hc2w3EKQ==";
-
-        private string EndpointUri;
+        private string PrimaryEndpointUri;
+        private string SecondaryEndpointUri;
         private string PrimaryKey;
-
-        private DocumentClient readClient;
-        private DocumentClient writeClient;
-
+        private string SecondaryKey;
 
         // GET api/values
         [HttpGet]
         public IEnumerable<Item> Get()
         {
+            var results = new HashSet<Item>(new ItemComparer() );
+
+            // re-init DocumentClient for each GET
+            // just in case
+            Console.WriteLine( "First Read");
+            ExecuteQuery( primaryClient, results );
+            Console.WriteLine("Second");
+            ExecuteQuery( secondaryClient, results );
+
+            return results.AsEnumerable<Item>();
+        }
+
+        private void ExecuteQuery( DocumentClient client, HashSet<Item> results )
+        {
             FeedOptions queryOptions = new FeedOptions { MaxItemCount = -1 };
+            var uri = UriFactory.CreateDocumentCollectionUri(databaseName, collectionName);
 
-            // TODO: create client locally to avoid stale connections
-            IQueryable<Item> itemQuery = this.readClient.CreateDocumentQuery<Item>(
-                UriFactory.CreateDocumentCollectionUri(databaseName, collectionName), queryOptions);
-
-            return itemQuery.AsEnumerable<Item>();
+            Console.WriteLine( "Executing Query at: {0}", uri );
+            IQueryable<Item> itemQuery = client.CreateDocumentQuery<Item>(
+                uri, queryOptions);
+            Console.WriteLine( string.Format("Query from endpoint: {0}", client.ReadEndpoint.ToString()));
+            var counter = 0;
+            foreach ( var i in itemQuery.AsEnumerable<Item>() )
+            {
+                var added = results.Add(i);
+                if( ! added ) {
+                    Console.WriteLine( string.Format("Element not added {0}", i.id));
+                }
+                counter++;
+            } 
+            Console.WriteLine( string.Format( "Query with {0} results, collection with {1}", counter, results.Count));
         }
 
         // POST api/values
         [HttpPost]
         public async Task<string> Post([FromBody]Item value)
         {
+            // initialize the client for every POST, but keep it
+            // consistent for the duration of the method execution
+            var client = primaryClient;
+
             var response = "";
 
             value.id = DateTime.Now.Ticks.ToString();
             value.location = System.Net.Dns.GetHostName();
-            value.fromEndpoint = writeClient.WriteEndpoint.ToString();
-            if( ! string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MYVVAR")) ) 
-            {
-                value.localEnv = Environment.GetEnvironmentVariable("MYVAR");
-            }
-            else{
-                value.localEnv = "unset";
-            }
+            value.fromEndpoint = client.WriteEndpoint.ToString();
 
             try{
-                // TODO: create client locally to avoid stale connections
-
                 var uri = UriFactory.CreateDocumentCollectionUri(databaseName, collectionName);
-                var doc = await this.writeClient.CreateDocumentAsync(uri, value);
-                doc.Resource.SetPropertyValue( "location", writeClient.WriteEndpoint.ToString() );
-                await this.writeClient.UpsertDocumentAsync( uri, doc.Resource );
-                response = "Added data in " + writeClient.WriteEndpoint + "\n";
+                var doc = await client.CreateDocumentAsync(uri, value);
+                doc.Resource.SetPropertyValue( "location", client.WriteEndpoint.ToString() );
+                await client.UpsertDocumentAsync( uri, doc.Resource );
+                response = "Added data in " + client.WriteEndpoint + "\n";
             }
             catch (Exception ex )
             {
@@ -134,16 +153,11 @@ namespace cosmosdata.Controllers
             return response;
         }
 
-        // PUT api/values/5
-        [HttpPut("{id}")]
-        public void Put(int id, [FromBody]string value)
-        {
-        }
-
         // DELETE api/values/5
         [HttpDelete("{id}")]
         public void Delete(int id)
         {
+            // TODO
         }
     }
 }
