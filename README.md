@@ -15,6 +15,7 @@ Set the following environment variables:
 
 ## Usage
 Add an item to the data store: `curl -X POST -H "Content-Type: application/json" -d '{"text":"bladeebla" }' http://localhost:5000/api/items`
+
 Query the data store: `curl http://localhost:5000/api/newitems`
 
 ## Building the container
