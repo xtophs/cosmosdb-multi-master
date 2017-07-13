@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using System.Runtime.InteropServices;
 
 using System.Net;
 using Microsoft.Azure.Documents;
@@ -70,7 +71,14 @@ class ItemComparer : EqualityComparer<Item>
 
         private DocumentClient GetDocumentClient( string endpoint, string key, IEnumerable<string> locations  )
         {
-            ConnectionPolicy policy = new ConnectionPolicy { ConnectionMode = ConnectionMode.Direct, ConnectionProtocol = Protocol.Tcp };
+            // Addressing .NETCore issue on Linux
+            // https://github.com/Azure/azure-documentdb-dotnet/issues/194 
+            ConnectionPolicy policy = new ConnectionPolicy();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) 
+            {
+                policy.ConnectionMode = ConnectionMode.Direct;
+                policy.ConnectionProtocol = Protocol.Tcp;
+            }            
             foreach (var l in locations )
             {
                 Console.WriteLine(string.Format("Adding location: {0}", l));
@@ -140,6 +148,8 @@ class ItemComparer : EqualityComparer<Item>
 
             try{
                 var uri = UriFactory.CreateDocumentCollectionUri(databaseName, collectionName);
+                Console.WriteLine( string.Format( "DocDB Uri is: {0}", uri));
+
                 var doc = await client.CreateDocumentAsync(uri, value);
                 doc.Resource.SetPropertyValue( "location", client.WriteEndpoint.ToString() );
                 await client.UpsertDocumentAsync( uri, doc.Resource );

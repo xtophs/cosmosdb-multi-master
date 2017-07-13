@@ -1,4 +1,3 @@
-
 FROM microsoft/aspnetcore:1.1.2
 LABEL Name=cosmosdata Version=0.0.1 
 ARG source=./bin/Debug/netcoreapp1.1/publish
