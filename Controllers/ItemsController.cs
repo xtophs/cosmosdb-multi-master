@@ -58,14 +58,14 @@ class ItemComparer : EqualityComparer<Item>
         private DocumentClient primaryClient { 
             get 
             {
-                return GetDocumentClient(PrimaryEndpointUri, PrimaryKey, EnvReader.GetWriteRegions());
+                return GetDocumentClient(PrimaryEndpointUri, PrimaryKey, EnvReader.GetPrimaryRegions());
             }
         }
 
         private DocumentClient secondaryClient { 
             get 
             {
-                return GetDocumentClient(SecondaryEndpointUri, SecondaryKey, EnvReader.GetReadRegions());
+                return GetDocumentClient(SecondaryEndpointUri, SecondaryKey, EnvReader.GetSecondaryRegions());
             }
         }
 

@@ -22,10 +22,10 @@ class EnvReader
             return value.Trim();
         }
 
-    internal static IEnumerable<string> GetWriteRegions()
+    internal static IEnumerable<string> GetPrimaryLocations()
     {
         // TODO: Cache those to avoid rereading for every call
-        return ParseEnvironmentVariable("WRITE_REGIONS");
+        return ParseEnvironmentVariable("PRIMARY_LOCATIONS");
     }
 
     private static IEnumerable<string> ParseEnvironmentVariable(string envVar)
@@ -40,10 +40,10 @@ class EnvReader
         return response;
     }
 
-    internal static IEnumerable<string> GetReadRegions()
+    internal static IEnumerable<string> GetSecondaryLocations()
     {
         // TODO: Cache those to avoid rereading for every call
-        return ParseEnvironmentVariable("READ_REGIONS");
+        return ParseEnvironmentVariable("SECONDARY_LOCATIONS");
     }
 
 }
